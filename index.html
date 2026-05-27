@@ -182,6 +182,18 @@ th{background:var(--table-head);color:var(--text)}
   .btn.small{width:100%}
 }
 
+
+.navio-parciais-panel{border:1px solid var(--line);border-radius:18px;background:rgba(14,165,233,.06);padding:14px;margin-top:14px}
+.navio-parciais-panel.hidden{display:none!important}
+.navio-parciais-list{display:grid;grid-template-columns:1fr;gap:10px;margin-top:12px}
+.navio-parcial-card{border:1px solid var(--line);border-radius:16px;background:var(--card);padding:12px;box-shadow:0 8px 24px rgba(15,23,42,.08)}
+.navio-parcial-card h4{margin:0 0 8px;font-size:15px;display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+.navio-parcial-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;font-size:12px}
+.navio-parcial-grid div{border:1px solid var(--line);border-radius:10px;padding:7px;background:rgba(148,163,184,.08)}
+.navio-parcial-grid span{display:block;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.03em;margin-bottom:2px}
+.navio-parcial-grid b.bad{color:#dc2626}.navio-parcial-grid b.ok{color:#16a34a}
+@media(max-width:760px){.navio-parcial-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
 </style>
 <script>
 /* JavaScript incorporado para evitar erro 404 no GitHub Pages */
@@ -233,11 +245,12 @@ document.addEventListener('click', (ev) => {
 
 // POLARIZAÇÃO: Abaixo de 99.49 é Não Conforme (Limite Mínimo para VHP)
 // COR, CINZAS, UMIDADE, INSOLÚVEL: Acima do limite é Não Conforme (Limite Máximo)
-const ESPEC = {corMax:1200, polarMin:99.49, cinzasMax:0.15, umidadeMax:0.15, insolMax:500};
+const ESPEC = {corMax:1200, polarMin:99.49, cinzasMax:0.15, umidadeMax:0.15, insolMax:99.49};
 const STORE = 'coq_boletins_v1';
 const SEQ_PREFIX = 'coq_seq_';
 let categoriaAtual = 'Navio';
 let ultimoSalvo = null;
+let parciaisNavio = [];
 
 const memoriaStorage = {};
 let storagePersistenteAtivo = false;
@@ -406,6 +419,7 @@ function setCategoria(cat){
   const hnt = $('identHint') || $('identificacaoHint');
   if(hnt) hnt.textContent = hints[cat] || '';
   atualizarDestaqueCampos();
+  atualizarSecaoParciaisNavio();
 }
 
 function inicializarCategorias(){
@@ -425,6 +439,7 @@ function inicializarCategorias(){
   setCategoria(categoriaAtual || 'Navio');
 }
 window.addEventListener('DOMContentLoaded', inicializarCategorias);
+window.addEventListener('DOMContentLoaded', ()=>{atualizarSecaoParciaisNavio(); renderParciaisNavio();});
 
 function v(id){const el=$(id); return el ? el.value.trim() : '';}
 function paraMaiusculasPt(texto){return String(texto || '').toLocaleUpperCase('pt-BR');}
@@ -486,6 +501,15 @@ function analisesForaEspecificacao(b){
   if(b.cinzas!==null && b.cinzas>ESPEC.cinzasMax) falhas.push('Cinzas');
   if(b.umidade!==null && b.umidade>ESPEC.umidadeMax) falhas.push('Umidade');
   if(b.insoluvel!==null && b.insoluvel>ESPEC.insolMax) falhas.push('Resíduo insolúvel');
+  if(Array.isArray(b.parciaisNavio)){
+    b.parciaisNavio.forEach((p, idx)=>{
+      const falhasParcial = analisesForaEspecificacaoParcial(p);
+      falhasParcial.forEach(nome=>{
+        const desc = `Parcial ${idx+1} - ${nome}`;
+        if(!falhas.includes(desc)) falhas.push(desc);
+      });
+    });
+  }
   return falhas;
 }
 
@@ -532,9 +556,146 @@ function avisar(mensagem, tipo='info', titulo='Controle Operacional de Qualidade
 }
 let limparBancoPendenteAte = 0;
 
+
+function escHTML(txt){
+  return String(txt ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+
+function valorNumeroTexto(txt){
+  const limpo = String(txt || '').trim();
+  if(!limpo) return null;
+  const n = Number(limpo.replace(',', '.'));
+  return Number.isFinite(n) ? n : null;
+}
+
+function valorParcial(id){
+  return valorNumeroTexto(v(id));
+}
+
+function falhasParcialPorValores(p){
+  const falhas=[];
+  if(p.cor!==null && p.cor>ESPEC.corMax) falhas.push('Cor');
+  if(p.polarizacao!==null && p.polarizacao<ESPEC.polarMin) falhas.push('Polarização');
+  if(p.cinzas!==null && p.cinzas>ESPEC.cinzasMax) falhas.push('Cinzas');
+  if(p.umidade!==null && p.umidade>ESPEC.umidadeMax) falhas.push('Umidade');
+  if(p.insoluvel!==null && p.insoluvel>ESPEC.insolMax) falhas.push('Resíduo insolúvel');
+  return falhas;
+}
+
+function analisesForaEspecificacaoParcial(p){
+  return falhasParcialPorValores(p || {});
+}
+
+function formatarCamposParcialNavio(){
+  formatarInteiro('parcialNavioCor', 4, true);
+  ['parcialNavioPol','parcialNavioCinzas','parcialNavioUmidade'].forEach(id=>formatarDecimal2(id));
+}
+
+function limparCamposParcialNavio(){
+  ['parcialNavioNumero','parcialNavioDataHora','parcialNavioPorao','parcialNavioQuantidade','parcialNavioCor','parcialNavioPol','parcialNavioCinzas','parcialNavioUmidade','parcialNavioInsoluvel','parcialNavioObservacoes'].forEach(id=>{const el=$(id); if(el) el.value='';});
+  const sit=$('parcialNavioSituacao'); if(sit) sit.value='Conforme';
+}
+
+function montarParcialNavio(){
+  formatarCamposParcialNavio();
+  const parcial = {
+    numeroParcial: valorTextoBoletim('parcialNavioNumero') || String(parciaisNavio.length + 1),
+    dataHora: v('parcialNavioDataHora') || new Date().toLocaleString('pt-BR'),
+    poraoLote: valorTextoBoletim('parcialNavioPorao'),
+    quantidade: v('parcialNavioQuantidade'),
+    cor: valorParcial('parcialNavioCor'),
+    polarizacao: valorParcial('parcialNavioPol'),
+    cinzas: valorParcial('parcialNavioCinzas'),
+    umidade: valorParcial('parcialNavioUmidade'),
+    insoluvel: valorParcial('parcialNavioInsoluvel'),
+    corTexto: v('parcialNavioCor'),
+    polarizacaoTexto: v('parcialNavioPol'),
+    cinzasTexto: v('parcialNavioCinzas'),
+    umidadeTexto: v('parcialNavioUmidade'),
+    insoluvelTexto: v('parcialNavioInsoluvel'),
+    situacao: v('parcialNavioSituacao') || 'Conforme',
+    observacoes: valorTextoBoletim('parcialNavioObservacoes')
+  };
+  parcial.falhas = analisesForaEspecificacaoParcial(parcial);
+  parcial.status = parcial.falhas.length ? 'Não conforme: ' + parcial.falhas.join(', ') : parcial.situacao;
+  return parcial;
+}
+
+function adicionarParcialNavio(){
+  if(categoriaAtual !== 'Navio') return avisar('As parciais são exclusivas da categoria Navio de Embarque.', 'warning', 'Parciais do navio');
+  const parcial = montarParcialNavio();
+  const temResultado = ['corTexto','polarizacaoTexto','cinzasTexto','umidadeTexto','insoluvelTexto'].some(campo => parcial[campo]);
+  if(!temResultado){
+    return avisar('Informe pelo menos um resultado de análise para adicionar a parcial.', 'warning', 'Parciais do navio');
+  }
+  parciaisNavio.push(parcial);
+  renderParciaisNavio();
+  limparCamposParcialNavio();
+  notificar('Parcial adicionada abaixo das anteriores.', 'success', 'Parciais do navio');
+}
+
+function removerParcialNavio(indice){
+  if(indice < 0 || indice >= parciaisNavio.length) return;
+  parciaisNavio.splice(indice, 1);
+  renderParciaisNavio();
+  notificar('Parcial removida da lista.', 'info', 'Parciais do navio');
+}
+
+function copiarResultadosParaParcialNavio(){
+  const mapa = [['cor','parcialNavioCor'],['polarizacao','parcialNavioPol'],['cinzas','parcialNavioCinzas'],['umidade','parcialNavioUmidade'],['insoluvel','parcialNavioInsoluvel'],['quantidade','parcialNavioQuantidade']];
+  mapa.forEach(([origem, destino])=>{const o=$(origem), d=$(destino); if(o && d) d.value = o.value;});
+  notificar('Resultados do boletim copiados para a parcial em edição.', 'info', 'Parciais do navio');
+}
+
+function renderParciaisNavio(){
+  const lista = $('listaParciaisNavio');
+  const contador = $('contadorParciaisNavio');
+  if(contador) contador.textContent = parciaisNavio.length + (parciaisNavio.length === 1 ? ' parcial' : ' parciais');
+  if(!lista) return;
+  if(!parciaisNavio.length){
+    lista.innerHTML = '<div class="hint">Nenhuma parcial adicionada ainda. As parciais lançadas aparecerão aqui, uma abaixo da outra, na ordem do embarque.</div>';
+    return;
+  }
+  lista.innerHTML = parciaisNavio.map((p, idx)=>{
+    const falhas = analisesForaEspecificacaoParcial(p);
+    const statusClasse = falhas.length ? 'bad' : 'ok';
+    const statusTexto = falhas.length ? 'Não conforme: ' + falhas.join(', ') : (p.situacao || 'Conforme');
+    const campo = (rotulo, valor, classe='') => `<div><span>${rotulo}</span><b class="${classe}">${escHTML(valor || '-')}</b></div>`;
+    return `<div class="navio-parcial-card">
+      <h4><span>Parcial ${idx+1}${p.numeroParcial ? ' — ' + escHTML(p.numeroParcial) : ''}</span><button type="button" class="btn danger" style="padding:5px 8px" onclick="removerParcialNavio(${idx})">Remover</button></h4>
+      <div class="navio-parcial-grid">
+        ${campo('Data/Hora', p.dataHora)}
+        ${campo('Porão/Lote', p.poraoLote)}
+        ${campo('Quantidade', p.quantidade)}
+        ${campo('Cor', (p.corTexto || fmt(p.cor)) + ' UI', p.cor!==null && p.cor>ESPEC.corMax ? 'bad' : '')}
+        ${campo('Pol', (p.polarizacaoTexto || fmt(p.polarizacao)) + ' ºZ', p.polarizacao!==null && p.polarizacao<ESPEC.polarMin ? 'bad' : '')}
+        ${campo('Cinzas', (p.cinzasTexto || fmt(p.cinzas)) + ' %', p.cinzas!==null && p.cinzas>ESPEC.cinzasMax ? 'bad' : '')}
+        ${campo('Umidade', (p.umidadeTexto || fmt(p.umidade)) + ' %', p.umidade!==null && p.umidade>ESPEC.umidadeMax ? 'bad' : '')}
+        ${campo('Resíduo insolúvel', (p.insoluvelTexto || fmt(p.insoluvel)) + ' mg/kg', p.insoluvel!==null && p.insoluvel>ESPEC.insolMax ? 'bad' : '')}
+        ${campo('Status', statusTexto, statusClasse)}
+        ${campo('Observações', p.observacoes)}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function atualizarSecaoParciaisNavio(){
+  const secao = $('secaoParciaisNavio');
+  if(!secao) return;
+  const visivel = categoriaAtual === 'Navio';
+  secao.classList.toggle('hidden', !visivel);
+  secao.setAttribute('aria-hidden', visivel ? 'false' : 'true');
+  if(visivel) renderParciaisNavio();
+}
+
+function resumoParciaisNavio(parciais){
+  if(!Array.isArray(parciais) || !parciais.length) return 'Sem parciais lançadas.';
+  return parciais.map((p, idx)=>`Parcial ${idx+1}${p.numeroParcial ? ' ('+p.numeroParcial+')' : ''}: Cor ${p.corTexto||fmt(p.cor)} UI | Pol ${p.polarizacaoTexto||fmt(p.polarizacao)} ºZ | Cinzas ${p.cinzasTexto||fmt(p.cinzas)} % | Umidade ${p.umidadeTexto||fmt(p.umidade)} % | RI ${p.insoluvelTexto||fmt(p.insoluvel)} mg/kg | Status ${p.status || '-'}`).join(' / ');
+}
+
 function coletarDados(comNumero=false){
   if(categoriaAtual==='Ferrovia') formatarPrefixoFerrovia();
-  ['cor','insoluvel'].forEach(id=>formatarInteiro(id, id==='cor'?4:5, true));
+  formatarInteiro('cor', 4, true);
   ['polarizacao','cinzas','umidade'].forEach(id=>formatarDecimal2(id));
   
   if(!v('identificacao')){avisar('Informe a identificação principal.', 'warning', 'Validação'); return null;}
@@ -569,7 +730,8 @@ function coletarDados(comNumero=false){
     umidadeTexto: v('umidade'), 
     insoluvelTexto: v('insoluvel'), 
     residuoMineral: valorTextoBoletim('residuoMineral'), 
-    situacao: v('situacao')
+    situacao: v('situacao'),
+    parciaisNavio: categoriaAtual==='Navio' ? parciaisNavio.map(p=>({...p})) : []
   };
   
   b.falhas = analisesForaEspecificacao(b);
@@ -580,7 +742,7 @@ function coletarDados(comNumero=false){
 
 function salvarBoletim(){
   const b = coletarDados(true); if(!b) return;
-  const base = getBase(); base.push(b); setBase(base); ultimoSalvo = b; limparFormulario(false); render();
+  const base = getBase(); base.push(b); setBase(base); ultimoSalvo = b; parciaisNavio = []; limparFormulario(false); render();
   notificar('Boletim de Análises '+b.numero+' salvo. Use o botão PDF se desejar gerar o documento.', 'success', 'Boletim salvo');
 }
 
@@ -594,6 +756,9 @@ function limparFormulario(resetCat=true){
   }); 
   const prod = $('produto'); if(prod) prod.value='VHP'; 
   const sit = $('situacao'); if(sit) sit.value='Conforme'; 
+  parciaisNavio = [];
+  limparCamposParcialNavio();
+  renderParciaisNavio();
   if(resetCat) setCategoria('Navio');
 }
 
@@ -606,7 +771,7 @@ function render(){
     const tr=document.createElement('tr');
     const falhas = b.falhas || analisesForaEspecificacao(b);
     tr.title = falhas.length ? 'Fora de especificação: '+falhas.join(', ') : '';
-    tr.innerHTML = `<td><b>${b.numero}</b></td><td>${b.data}</td><td>${b.categoria}</td><td>${b.identificacao}</td><td>${b.produto}</td><td>${b.quantidade||'-'}</td><td class="${falhas.length || b.status.startsWith('Não')?'bad':'ok'}">${b.status}</td><td><button type="button" class="btn primary" style="padding:6px 8px" onclick="gerarPDFPorId(${b.id})">PDF</button> <button type="button" class="btn outline" style="padding:6px 8px" onclick="enviarWhatsAppPorId(${b.id})">WhatsApp</button> <button type="button" class="btn outline" style="padding:6px 8px" onclick="enviarEmailPorId(${b.id})">Email</button></td>`;
+    tr.innerHTML = `<td><b>${b.numero}</b></td><td>${b.data}</td><td>${b.categoria}</td><td>${b.identificacao}</td><td>${b.produto}</td><td>${b.quantidade||'-'}${Array.isArray(b.parciaisNavio)&&b.parciaisNavio.length ? ' | '+b.parciaisNavio.length+' parciais' : ''}</td><td class="${falhas.length || b.status.startsWith('Não')?'bad':'ok'}">${b.status}</td><td><button type="button" class="btn primary" style="padding:6px 8px" onclick="gerarPDFPorId(${b.id})">PDF</button> <button type="button" class="btn outline" style="padding:6px 8px" onclick="enviarWhatsAppPorId(${b.id})">WhatsApp</button> <button type="button" class="btn outline" style="padding:6px 8px" onclick="enviarEmailPorId(${b.id})">Email</button></td>`;
     tb.appendChild(tr);
   }
   
@@ -643,7 +808,7 @@ function gerarPDF(b){
   doc.text(`Analista: ${b.responsavel||'-'}`, 12, 47, {maxWidth:186});
   doc.text(`Observações: ${b.observacoes||'Sem observações.'}`, 12, 53, {maxWidth:186});
   
-  doc.autoTable({startY:61, margin:{left:35,right:35}, head:[['ENSAIOS','UNIDADE','VHP']], body:[['POLARIZAÇÃO','ºZ','Mín. 99,49'],['UMIDADE','%','Máx. 0,15'],['CINZAS','%','Máx. 0,15'],['COR','UI','Máx. 1200'],['RESÍDUO INSOLÚVEL','mg/kg','Máx. 500']], styles:{fontSize:7,cellPadding:1.5,halign:'center'}, headStyles:{fillColor:[250,204,21],textColor:[0,0,0]}, columnStyles:{0:{fillColor:[250,204,21],fontStyle:'bold'}}});
+  doc.autoTable({startY:61, margin:{left:35,right:35}, head:[['ENSAIOS','UNIDADE','VHP']], body:[['POLARIZAÇÃO','ºZ','Mín. 99,49'],['UMIDADE','%','Máx. 0,15'],['CINZAS','%','Máx. 0,15'],['COR','UI','Máx. 1200'],['RESÍDUO INSOLÚVEL','mg/kg','Máx. 99,49']], styles:{fontSize:7,cellPadding:1.5,halign:'center'}, headStyles:{fillColor:[250,204,21],textColor:[0,0,0]}, columnStyles:{0:{fillColor:[250,204,21],fontStyle:'bold'}}});
   doc.autoTable({startY:doc.lastAutoTable.finalY+5, margin:{left:35,right:35}, head:[['ENSAIOS','UNIDADE','METODOLOGIA']], body:[['POLARIZAÇÃO','ºZ','GS 1/2/3/9-1'],['UMIDADE','%','GS 2/1/3/9-15:2007'],['CINZAS','%','GS 1/3/4/7/8-11:1994'],['COR','UI','GS 1/3/7/8-7:2011'],['RESÍDUO INSOLÚVEL','mg/kg','GS 2/3/9-19:2007']], styles:{fontSize:7,cellPadding:1.5,halign:'center'}, headStyles:{fillColor:[250,204,21],textColor:[0,0,0]}, columnStyles:{0:{fillColor:[250,204,21],fontStyle:'bold'}}});
   
   doc.autoTable({
@@ -666,6 +831,22 @@ function gerarPDF(b){
     }
   });
   
+  if(Array.isArray(b.parciaisNavio) && b.parciaisNavio.length){
+    doc.autoTable({
+      startY:doc.lastAutoTable.finalY+7,
+      head:[['PARCIAL','DATA/HORA','PORÃO/LOTE','QTD','COR','POL','UMID.','CINZAS','RI','STATUS']],
+      body:b.parciaisNavio.map((p,idx)=>[String(idx+1), p.dataHora||'-', p.poraoLote||'-', p.quantidade||'-', p.corTexto||fmt(p.cor), p.polarizacaoTexto||fmt(p.polarizacao), p.umidadeTexto||fmt(p.umidade), p.cinzasTexto||fmt(p.cinzas), p.insoluvelTexto||fmt(p.insoluvel), p.status||'-']),
+      styles:{fontSize:6,cellPadding:1.3,halign:'center'},
+      headStyles:{fillColor:[14,165,233],textColor:[255,255,255]},
+      didParseCell:(data)=>{
+        if(data.section==='body'){
+          const p=b.parciaisNavio[data.row.index];
+          const fora={4:p.cor!==null&&p.cor>ESPEC.corMax,5:p.polarizacao!==null&&p.polarizacao<ESPEC.polarMin,6:p.umidade!==null&&p.umidade>ESPEC.umidadeMax,7:p.cinzas!==null&&p.cinzas>ESPEC.cinzasMax,8:p.insoluvel!==null&&p.insoluvel>ESPEC.insolMax,9:(p.status||'').startsWith('Não')};
+          if(fora[data.column.index]){data.cell.styles.textColor=[220,38,38]; data.cell.styles.fontStyle='bold';}
+        }
+      }
+    });
+  }
   let y=doc.lastAutoTable.finalY+8; doc.setFont('helvetica','bold'); doc.text('CONCLUSÃO:', 12, y); doc.setFont('helvetica','normal'); doc.text(`Resultado: ${b.status}. O resultado refere-se exclusivamente à amostra/operação identificada neste boletim.`, 12, y+5, {maxWidth:186});
   y+=18; doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.text('Analista: '+(b.responsavel||ANALISTAS_PADRAO[0]), 12, y, {maxWidth:186});
   doc.setFontSize(6); doc.text('Modelo gerado pelo Controle Operacional de Qualidade — validar logotipo e dados oficiais antes de emissão externa.', W/2, 287, {align:'center'});
@@ -695,6 +876,12 @@ function mensagemWhatsApp(b){
     `*Status:* ${b.status}`,
     `Analista: ${b.responsavel||ANALISTAS_PADRAO[0]}`
   ];
+  if(Array.isArray(b.parciaisNavio) && b.parciaisNavio.length){
+    linhas.push('', '*Parciais do Navio de Embarque:*');
+    b.parciaisNavio.forEach((p, idx)=>{
+      linhas.push(`Parcial ${idx+1}${p.numeroParcial ? ' ('+p.numeroParcial+')' : ''}: Cor ${p.corTexto||fmt(p.cor)} UI | Pol ${p.polarizacaoTexto||fmt(p.polarizacao)} ºZ | Cinzas ${p.cinzasTexto||fmt(p.cinzas)} % | Umidade ${p.umidadeTexto||fmt(p.umidade)} % | RI ${p.insoluvelTexto||fmt(p.insoluvel)} mg/kg | ${p.status||'-'}`);
+    });
+  }
   if(b.observacoes) linhas.push('', `Observações: ${b.observacoes}`);
   return linhas.join('\n');
 }
@@ -769,8 +956,8 @@ function csvSafe(x){return '"'+String(x??'').replaceAll('"','""')+'"';}
 
 function exportarCSV(){
   const base=getBase(); if(!base.length) return avisar('Nenhum Boletim de Análises para exportar.', 'warning');
-  const cols=['numero','data','categoria','identificacao','prefixoComposicao','localOrigem','destino','produto','quantidade','responsavel','corTexto','polarizacaoTexto','cinzasTexto','umidadeTexto','insoluvelTexto','residuoMineral','status','observacoes'];
-  const csv=[cols.join(';'), ...base.map(b=>cols.map(c=>csvSafe(b[c])).join(';'))].join('\n');
+  const cols=['numero','data','categoria','identificacao','prefixoComposicao','localOrigem','destino','produto','quantidade','responsavel','corTexto','polarizacaoTexto','cinzasTexto','umidadeTexto','insoluvelTexto','residuoMineral','status','observacoes','parciaisNavioResumo'];
+  const csv=[cols.join(';'), ...base.map(b=>cols.map(c=>csvSafe(c==='parciaisNavioResumo' ? resumoParciaisNavio(b.parciaisNavio) : b[c])).join(';'))].join('\n');
   baixarArquivo(csv, 'boletins_analise_COQ.csv', 'text/csv;charset=utf-8;');
 }
 
@@ -816,6 +1003,103 @@ function inserirCorICUMSA(){
   }
 }
 
+
+function calcularUmidadePorCampos(idPlacaVazia, idPlacaUmida, idPlacaSeca, idResultado, titulo){
+  const placaVazia = parseDecimalBR(document.getElementById(idPlacaVazia)?.value || '0');
+  const placaUmida = parseDecimalBR(document.getElementById(idPlacaUmida)?.value || '0');
+  const placaSeca = parseDecimalBR(document.getElementById(idPlacaSeca)?.value || '0');
+  const nomeTitulo = titulo || 'Umidade';
+  
+  if(!Number.isFinite(placaVazia) || !Number.isFinite(placaUmida) || !Number.isFinite(placaSeca)){
+    avisar('Preencha placa vazia, placa + amostra úmida e placa + amostra seca com valores válidos.', 'warning', nomeTitulo);
+    return null;
+  }
+  
+  const massaAmostra = placaUmida - placaVazia;
+  const perdaSecagem = placaUmida - placaSeca;
+  
+  if(massaAmostra <= 0){
+    avisar('Placa + amostra úmida deve ser maior que placa vazia.', 'warning', nomeTitulo);
+    return null;
+  }
+  if(perdaSecagem < 0){
+    avisar('Placa + amostra seca não pode ser maior que placa + amostra úmida.', 'warning', nomeTitulo);
+    return null;
+  }
+  
+  const umidade = (perdaSecagem / massaAmostra) * 100;
+  const valorFormatado = umidade.toFixed(2).replace('.', ',');
+  const res = document.getElementById(idResultado);
+  if(res) res.textContent = valorFormatado;
+  return umidade;
+}
+
+function calcularUmidadeMedicao1(){
+  return calcularUmidadePorCampos('umidP1Med1', 'umidP2Med1', 'umidP3Med1', 'resultadoUmidadeMedicao1', 'Medição 1 - Umidade');
+}
+
+function calcularUmidadeMedicao2(){
+  return calcularUmidadePorCampos('umidP1Med2', 'umidP2Med2', 'umidP3Med2', 'resultadoUmidadeMedicao2', 'Medição 2 - Umidade');
+}
+
+function lerResultadoUmidade(idResultado){
+  const texto = (document.getElementById(idResultado)?.textContent || '').trim().replace(',', '.');
+  const valor = Number(texto);
+  return Number.isFinite(valor) ? valor : null;
+}
+
+function calcularMediaUmidade(){
+  let medicao1 = lerResultadoUmidade('resultadoUmidadeMedicao1');
+  let medicao2 = lerResultadoUmidade('resultadoUmidadeMedicao2');
+  
+  if(medicao1 === null){
+    medicao1 = calcularUmidadeMedicao1();
+  }
+  if(medicao2 === null){
+    medicao2 = calcularUmidadeMedicao2();
+  }
+  if(medicao1 === null || medicao2 === null){
+    avisar('Calcule a Medição 1 e a Medição 2 antes de calcular a média da duplicata.', 'warning', 'Média - Umidade');
+    return null;
+  }
+  
+  const media = (medicao1 + medicao2) / 2;
+  const valorFormatado = media.toFixed(2).replace('.', ',');
+  const res = document.getElementById('resultadoUmidadeMedia');
+  if(res) res.textContent = valorFormatado;
+  return media;
+}
+
+function inserirUmidadeNoBoletim(idResultado, descricao){
+  const r = (document.getElementById(idResultado)?.textContent || '').trim();
+  if(!r || r==='-'){
+    avisar('Calcule o resultado antes de inserir no boletim.', 'warning', descricao || 'Umidade');
+    return;
+  }
+  const target = document.getElementById('umidade');
+  if(target){
+    target.value = r;
+    atualizarDestaqueCampos();
+    notificar((descricao || 'Umidade') + ' inserida no Boletim de Análises.', 'success', descricao || 'Umidade');
+  }
+}
+
+function inserirUmidadeMedicao1(){
+  inserirUmidadeNoBoletim('resultadoUmidadeMedicao1', 'Medição 1 - Umidade');
+}
+
+function inserirUmidadeMedicao2(){
+  inserirUmidadeNoBoletim('resultadoUmidadeMedicao2', 'Medição 2 - Umidade');
+}
+
+function inserirMediaUmidade(){
+  const media = lerResultadoUmidade('resultadoUmidadeMedia');
+  if(media === null){
+    if(calcularMediaUmidade() === null) return;
+  }
+  inserirUmidadeNoBoletim('resultadoUmidadeMedia', 'Média - Umidade');
+}
+
 function calcularResiduoInsoluvelPorCampos(idMembranaVazia, idMembranaResiduo, idMassaAcucar, idResultado, titulo){
   const membranaVazia = parseDecimalBR(document.getElementById(idMembranaVazia)?.value || '0');
   const membranaResiduo = parseDecimalBR(document.getElementById(idMembranaResiduo)?.value || '0');
@@ -832,86 +1116,36 @@ function calcularResiduoInsoluvelPorCampos(idMembranaVazia, idMembranaResiduo, i
     return null;
   }
   
-  const residuoMgKg = Math.round((diferenca / massaAcucar) * 1000000);
+  const residuoMgKg = (diferenca / massaAcucar) * 1000000;
+  const residuoTexto = residuoMgKg.toFixed(2).replace('.', ',');
   const res = document.getElementById(idResultado);
-  if(res) res.textContent = String(residuoMgKg);
+  if(res) res.textContent = residuoTexto;
   return residuoMgKg;
 }
 
-function calcularResiduoMedicao1(){
-  return calcularResiduoInsoluvelPorCampos('membranaVazia', 'membranaResiduoDuplicata', 'massaAcucarDuplicata', 'resultadoResiduoMedicao1', 'Medição 1 - Resíduo Insolúvel');
+function calcularResiduoInsoluvel(){
+  return calcularResiduoInsoluvelPorCampos('membranaVazia', 'membranaResiduo', 'massaAcucarResiduo', 'resultadoResiduoInsoluvel', 'Resíduo Insolúvel');
 }
 
-function calcularResiduoMedicao2(){
-  return calcularResiduoInsoluvelPorCampos('membranaVazia2', 'membranaResiduoDuplicata2', 'massaAcucarDuplicata2', 'resultadoResiduoMedicao2', 'Medição 2 - Resíduo Insolúvel');
-}
-
-function lerResultadoResiduo(idResultado){
-  const texto = (document.getElementById(idResultado)?.textContent || '').trim().replace(',', '.');
-  const valor = Number(texto);
-  return Number.isFinite(valor) ? valor : null;
-}
-
-function calcularMediaResiduo(){
-  let medicao1 = lerResultadoResiduo('resultadoResiduoMedicao1');
-  let medicao2 = lerResultadoResiduo('resultadoResiduoMedicao2');
-  
-  if(medicao1 === null){
-    medicao1 = calcularResiduoMedicao1();
-  }
-  if(medicao2 === null){
-    medicao2 = calcularResiduoMedicao2();
-  }
-  if(medicao1 === null || medicao2 === null){
-    avisar('Calcule a Medição 1 e a Medição 2 antes de calcular a média da duplicata.', 'warning', 'Média - Resíduo Insolúvel');
-    return null;
-  }
-  
-  const media = Math.round((medicao1 + medicao2) / 2);
-  const res = document.getElementById('resultadoResiduoMedia');
-  if(res) res.textContent = String(media);
-  return media;
-}
-
-function inserirResiduoNoBoletim(idResultado, descricao){
-  const r = (document.getElementById(idResultado)?.textContent || '').trim();
+function inserirResiduoInsoluvel(){
+  const r = (document.getElementById('resultadoResiduoInsoluvel')?.textContent || '').trim();
   if(!r || r==='-'){
-    avisar('Calcule o resultado antes de inserir no boletim.', 'warning', descricao || 'Resíduo insolúvel');
+    avisar('Calcule o resultado antes de inserir no boletim.', 'warning', 'Resíduo insolúvel');
     return;
   }
   const target = document.getElementById('insoluvel');
   if(target){
     target.value = r;
-    formatarInteiro('insoluvel', 5, true);
-    notificar((descricao || 'Resíduo insolúvel') + ' inserido no Boletim de Análises.', 'success', descricao || 'Resíduo insolúvel');
+    notificar('Resíduo insolúvel inserido no Boletim de Análises.', 'success', 'Resíduo insolúvel');
     atualizarDestaqueCampos();
   }
 }
 
-function inserirResiduoMedicao1(){
-  inserirResiduoNoBoletim('resultadoResiduoMedicao1', 'Medição 1 - Resíduo Insolúvel');
-}
-
-function inserirResiduoMedicao2(){
-  inserirResiduoNoBoletim('resultadoResiduoMedicao2', 'Medição 2 - Resíduo Insolúvel');
-}
-
-function inserirMediaResiduo(){
-  const media = lerResultadoResiduo('resultadoResiduoMedia');
-  if(media === null){
-    if(calcularMediaResiduo() === null) return;
-  }
-  inserirResiduoNoBoletim('resultadoResiduoMedia', 'Média - Resíduo Insolúvel');
-}
-
 // Compatibilidade com versões anteriores do arquivo.
-function calcularResiduoInsoluvelDuplicata(){
-  return calcularResiduoMedicao1();
-}
-
-function inserirResiduoInsoluvelDuplicata(){
-  inserirMediaResiduo();
-}
+function calcularResiduoMedicao1(){return calcularResiduoInsoluvel();}
+function inserirResiduoMedicao1(){inserirResiduoInsoluvel();}
+function calcularResiduoInsoluvelDuplicata(){return calcularResiduoInsoluvel();}
+function inserirResiduoInsoluvelDuplicata(){inserirResiduoInsoluvel();}
 
 function formatarTempoEstufa(segundos){
   const m = Math.floor(segundos/60);
@@ -1117,6 +1351,26 @@ function limparBanco(){
 </div>
 <div class="col-12"><label>Observações da operação</label><textarea id="observacoes" placeholder="Informações relevantes para rastreabilidade do boletim."></textarea></div>
 </div>
+
+<div class="navio-parciais-panel" id="secaoParciaisNavio">
+<div class="panel-h" style="padding:0 0 10px"><div><h2>Parciais do Navio de Embarque</h2><p class="sub">Lance cada parcial do embarque em sequência. As parciais adicionadas ficam uma abaixo da outra com seus resultados.</p></div><span class="pill" id="contadorParciaisNavio">0 parciais</span></div>
+<div class="row">
+<div class="col-3"><label>Nº da parcial</label><input id="parcialNavioNumero" placeholder="Ex.: 01"/></div>
+<div class="col-3"><label>Data/Hora da parcial</label><input id="parcialNavioDataHora" placeholder="Ex.: 27/05/2026 14:30"/></div>
+<div class="col-3"><label>Porão / lote / linha</label><input id="parcialNavioPorao" placeholder="Ex.: Porão 01"/></div>
+<div class="col-3"><label>Quantidade da parcial</label><input id="parcialNavioQuantidade" placeholder="Ex.: 500 MT"/></div>
+<div class="col-2"><label>Cor (UI)</label><input id="parcialNavioCor" inputmode="numeric" maxlength="4" placeholder="XXXX" type="text"/></div>
+<div class="col-2"><label>Pol (ºZ)</label><input id="parcialNavioPol" inputmode="numeric" maxlength="5" placeholder="XX,XX" type="text"/></div>
+<div class="col-2"><label>Cinzas (%)</label><input id="parcialNavioCinzas" inputmode="numeric" maxlength="5" placeholder="XX,XX" type="text"/></div>
+<div class="col-2"><label>Umidade (%)</label><input id="parcialNavioUmidade" inputmode="numeric" maxlength="5" placeholder="XX,XX" type="text"/></div>
+<div class="col-2"><label>Resíduo insolúvel</label><input id="parcialNavioInsoluvel" inputmode="decimal" placeholder="99,49" type="text"/></div>
+<div class="col-2"><label>Situação</label><select id="parcialNavioSituacao"><option>Conforme</option><option>Aguardando revisão</option><option>Não conforme</option></select></div>
+<div class="col-12"><label>Observações da parcial</label><textarea id="parcialNavioObservacoes" placeholder="Informações da parcial, porão, lote, ocorrência ou rastreabilidade."></textarea></div>
+</div>
+<div class="btns"><button class="btn primary" onclick="adicionarParcialNavio()" type="button">Adicionar parcial abaixo</button><button class="btn outline" onclick="copiarResultadosParaParcialNavio()" type="button">Copiar resultados do boletim</button><button class="btn outline" onclick="limparCamposParcialNavio()" type="button">Limpar parcial</button></div>
+<div class="navio-parciais-list" id="listaParciaisNavio"></div>
+</div>
+
 <div class="panel" style="margin-top:14px;box-shadow:none">
 <div class="panel-h"><h2>Resultados de análise</h2><span class="mini">Especificação padrão VHP</span></div>
 <div class="panel-b">
@@ -1147,7 +1401,7 @@ function limparBanco(){
 </section>
 <section class="panel" style="margin-top:16px">
 <div class="panel-h">
-<div><h2>Ferramentas laboratoriais</h2><p class="sub">Módulos baseados no modelo antigo: cálculo de cor, cálculo de resíduo insolúvel e timer de secagem da estufa.</p></div>
+<div><h2>Ferramentas laboratoriais</h2><p class="sub">Módulos baseados no modelo antigo: cálculo de cor, cálculo de umidade em duplicata, cálculo de resíduo insolúvel e timer de secagem da estufa.</p></div>
 <span class="pill">Estufa e análises</span>
 </div>
 <div class="panel-b">
@@ -1162,33 +1416,46 @@ function limparBanco(){
 <div class="btns"><button class="btn primary" onclick="calcularCorICUMSA()" type="button">Calcular ICUMSA</button><button class="btn outline" onclick="inserirCorICUMSA()" type="button">Inserir no boletim</button></div>
 <div class="calc-result"><span>Resultado ICUMSA</span><b><span id="resultadoCorICUMSA">-</span> UI</b></div>
 </div>
+
 <div class="calc-card">
-<h3>📌 Medição 1 - Resíduo Insolúvel</h3>
-<p>Primeira medição: informe membrana vazia, membrana + resíduo e massa de açúcar.</p>
+<h3>📌 Medição 1 - Umidade</h3>
+<p>Primeira medição: informe o peso da placa vazia, da placa + amostra úmida e da placa + amostra após estufa.</p>
+<div class="row">
+<div class="col-4"><label>Placa vazia - P1 (g)</label><input id="umidP1Med1" placeholder="Ex.: 20.3814" step="0.0001" type="number"/></div>
+<div class="col-4"><label>Placa + amostra úmida - P2 (g)</label><input id="umidP2Med1" placeholder="Ex.: 40.3958" step="0.0001" type="number"/></div>
+<div class="col-4"><label>Placa + amostra seca - P3 (g)</label><input id="umidP3Med1" placeholder="Ex.: 40.3901" step="0.0001" type="number"/></div>
+</div>
+<div class="btns"><button class="btn primary" onclick="calcularUmidadeMedicao1()" type="button">Calcular Medição 1</button><button class="btn outline" onclick="inserirUmidadeMedicao1()" type="button">Inserir no boletim</button></div>
+<div class="calc-result"><span>Resultado Medição 1</span><b><span id="resultadoUmidadeMedicao1">-</span> %</b></div>
+</div>
+<div class="calc-card">
+<h3>📌 Medição 2 - Umidade</h3>
+<p>Segunda medição: informe os pesos da duplicata para calcular a umidade de forma independente.</p>
+<div class="row">
+<div class="col-4"><label>Placa vazia - P1 (g)</label><input id="umidP1Med2" placeholder="Ex.: 18.4232" step="0.0001" type="number"/></div>
+<div class="col-4"><label>Placa + amostra úmida - P2 (g)</label><input id="umidP2Med2" placeholder="Ex.: 38.4325" step="0.0001" type="number"/></div>
+<div class="col-4"><label>Placa + amostra seca - P3 (g)</label><input id="umidP3Med2" placeholder="Ex.: 38.4284" step="0.0001" type="number"/></div>
+</div>
+<div class="btns"><button class="btn primary" onclick="calcularUmidadeMedicao2()" type="button">Calcular Medição 2</button><button class="btn outline" onclick="inserirUmidadeMedicao2()" type="button">Inserir no boletim</button></div>
+<div class="calc-result"><span>Resultado Medição 2</span><b><span id="resultadoUmidadeMedicao2">-</span> %</b></div>
+</div>
+<div class="calc-card">
+<h3>📊 Média - Umidade</h3>
+<p>Média final da duplicata. Fórmula por medição: ((P2 - P3) / (P2 - P1)) × 100.</p>
+<div class="btns"><button class="btn primary" onclick="calcularMediaUmidade()" type="button">Calcular Média</button><button class="btn outline" onclick="inserirMediaUmidade()" type="button">Inserir no boletim</button></div>
+<div class="calc-result"><span>Média Final</span><b><span id="resultadoUmidadeMedia">-</span> %</b></div>
+</div>
+
+<div class="calc-card">
+<h3>Resíduo Insolúvel</h3>
+<p>Informe membrana vazia, membrana + resíduo e massa de açúcar. Fórmula: ((membrana + resíduo − membrana vazia) / massa de açúcar) × 1.000.000.</p>
 <div class="row">
 <div class="col-6"><label>Membrana vazia (g)</label><input id="membranaVazia" placeholder="Ex.: 2.6873" step="0.0001" type="number"/></div>
-<div class="col-6"><label>Membrana + resíduo (g)</label><input id="membranaResiduoDuplicata" placeholder="Ex.: 2.7140" step="0.0001" type="number"/></div>
-<div class="col-12"><label>Massa de açúcar (g)</label><input id="massaAcucarDuplicata" placeholder="Ex.: 125" step="0.01" type="number"/></div>
+<div class="col-6"><label>Membrana + resíduo (g)</label><input id="membranaResiduo" placeholder="Ex.: 2.6997" step="0.0001" type="number"/></div>
+<div class="col-12"><label>Massa de açúcar (g)</label><input id="massaAcucarResiduo" placeholder="Ex.: 125" step="0.01" type="number"/></div>
 </div>
-<div class="btns"><button class="btn primary" onclick="calcularResiduoMedicao1()" type="button">Calcular Medição 1</button><button class="btn outline" onclick="inserirResiduoMedicao1()" type="button">Inserir no boletim</button></div>
-<div class="calc-result"><span>Resultado Medição 1</span><b><span id="resultadoResiduoMedicao1">-</span> mg/kg</b></div>
-</div>
-<div class="calc-card">
-<h3>📌 Medição 2 - Resíduo Insolúvel</h3>
-<p>Segunda medição: informe os pesos da segunda análise para calcular a duplicata de forma independente.</p>
-<div class="row">
-<div class="col-6"><label>Membrana vazia (g)</label><input id="membranaVazia2" placeholder="Ex.: 2.6888" step="0.0001" type="number"/></div>
-<div class="col-6"><label>Membrana + resíduo (g)</label><input id="membranaResiduoDuplicata2" placeholder="Ex.: 2.7269" step="0.0001" type="number"/></div>
-<div class="col-12"><label>Massa de açúcar (g)</label><input id="massaAcucarDuplicata2" placeholder="Ex.: 125" step="0.01" type="number"/></div>
-</div>
-<div class="btns"><button class="btn primary" onclick="calcularResiduoMedicao2()" type="button">Calcular Medição 2</button><button class="btn outline" onclick="inserirResiduoMedicao2()" type="button">Inserir no boletim</button></div>
-<div class="calc-result"><span>Resultado Medição 2</span><b><span id="resultadoResiduoMedicao2">-</span> mg/kg</b></div>
-</div>
-<div class="calc-card">
-<h3>📊 Média - Resíduo Insolúvel</h3>
-<p>Média final da duplicata: o sistema usa os resultados da Medição 1 e da Medição 2.</p>
-<div class="btns"><button class="btn primary" onclick="calcularMediaResiduo()" type="button">Calcular Média</button><button class="btn outline" onclick="inserirMediaResiduo()" type="button">Inserir no boletim</button></div>
-<div class="calc-result"><span>Média Final</span><b><span id="resultadoResiduoMedia">-</span> mg/kg</b></div>
+<div class="btns"><button class="btn primary" onclick="calcularResiduoInsoluvel()" type="button">Calcular Resíduo</button><button class="btn outline" onclick="inserirResiduoInsoluvel()" type="button">Inserir no boletim</button></div>
+<div class="calc-result"><span>Resultado</span><b><span id="resultadoResiduoInsoluvel">-</span> mg/kg</b></div>
 </div>
 
 
